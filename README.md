@@ -16,7 +16,8 @@ You can also tick packages yourself ("Your load") and compare your choice with t
 | File | Job |
 |---|---|
 | `knapsack.py` | **All the Knapsack logic.** `choose_order()` sorts the packages, `fractional_knapsack()` fills the truck, `compare_all()` runs the three strategies, `manual_load()` totals the ticked packages. Also a command-line program. |
-| `app.py` | The web interface (Streamlit). Collects input, calls `knapsack.py`, shows the results. No Knapsack calculation here. |
+| `app.py` | Puts the page together: reads input, calls `knapsack.py`, shows the results with `ui.py`. No Knapsack calculation here. |
+| `ui.py` | Our design in Python: page styles, cards, truck drawing, loading timeline, comparison bars. No calculation. |
 | `requirements.txt` | Python packages needed. |
 | `.streamlit/config.toml` | Colours of the interface. |
 
