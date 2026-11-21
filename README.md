@@ -9,7 +9,7 @@ Week 7 & 8 lecture (Greedy Approach). The whole project is written in Python.
 | Minimum weight | lightest package first | 54 |
 | Maximum profit / weight | best profit per unit of weight first | 55.33 (optimal) |
 
-You can also tick packages yourself ("Your load") and compare your choice with the three strategies.
+The loading sequence is also the package list: tick a package to load it yourself ("Your load"), edit its name, weight or profit, or remove it, all in the same row.
 
 ## Files
 

@@ -98,15 +98,42 @@ CSS = """
   .sub-head { display: flex; align-items: baseline; justify-content: space-between; margin: 14px 0 2px; }
   .sub-head h3 { margin: 0; padding: 0; font-size: 14px; font-weight: 650; color: #111827; }
   .sub-head span { font-size: 12.5px; color: #6b7280; }
-  .timeline { list-style: none; margin: 0; padding: 0; }
-  .timeline li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 12px; padding: 10px 0; align-items: start; margin: 0; }
-  .timeline li + li { border-top: 1px dashed #e5e7eb; }
   .node { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: #fff; font-size: 12.5px; font-weight: 700; }
-  .t-main b { display: block; font-size: 14px; font-weight: 600; color: #111827; overflow-wrap: anywhere; }
-  .t-main > span { display: block; font-size: 12.5px; color: #6b7280; }
-  .t-gain { font-weight: 700; font-size: 14px; color: #15803d; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 4px; line-height: 17px; margin-left: 6px;
-         background: #f0fdfa; color: #0f766e; vertical-align: 1px; }
+
+  /* every package is one editable row: tick | number | name | weight | profit | result | delete */
+  .st-key-seq { gap: 0 !important; }
+  .seq-h { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: #6b7280; white-space: nowrap; }
+  .st-key-seqhead { padding-bottom: 6px; border-bottom: 1px solid #e5e7eb; }
+  [class*="st-key-row_"] { padding: 8px 0; gap: 0; }
+  [class*="st-key-row_"] + [class*="st-key-row_"] { border-top: 1px dashed #e5e7eb; }
+  [class*="st-key-row_"] [data-testid="stNumberInputStepUp"],
+  [class*="st-key-row_"] [data-testid="stNumberInputStepDown"] { display: none; }
+  [class*="st-key-row_"] input { font-size: 14.5px; }
+  [class*="st-key-row_"] [data-testid="stTextInput"] input { font-weight: 600; }
+  [class*="st-key-del_"] button { border: 0 !important; background: transparent !important; color: #9ca3af !important; min-height: 36px; padding: 0 8px; }
+  [class*="st-key-del_"] button:hover { color: #dc2626 !important; background: #fef2f2 !important; }
+  .res { font-size: 13px; color: #374151; line-height: 1.35; }
+  .res b { color: #111827; }
+  .res .g { float: right; color: #15803d; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .res.off { color: #9ca3af; }
+  .mini { height: 5px; border-radius: 99px; background: #e5e7eb; margin-top: 5px; overflow: hidden; }
+  .mini i { display: block; height: 100%; border-radius: 99px; background: #0f766e; }
+  .tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 4px; line-height: 17px; margin-left: 4px;
+         background: #f0fdfa; color: #0f766e; }
+  @media (min-width: 641px) { [class*="st-key-row_"] [data-testid="stWidgetLabel"] { display: none; } }
+  @media (max-width: 640px) {
+    .st-key-seqhead { display: none; }
+    [class*="st-key-row_"] [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; gap: 6px 8px !important; }
+    [class*="st-key-row_"] [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
+    [class*="st-key-row_"] [data-testid="stColumn"]:nth-child(1) { order: 1; flex: 0 0 26px !important; }
+    [class*="st-key-row_"] [data-testid="stColumn"]:nth-child(2) { order: 2; flex: 0 0 28px !important; }
+    [class*="st-key-row_"] [data-testid="stColumn"]:nth-child(3) { order: 3; flex: 1 1 calc(100% - 128px) !important; }
+    [class*="st-key-row_"] [data-testid="stColumn"]:nth-child(7) { order: 4; flex: 0 0 40px !important; }
+    [class*="st-key-row_"] [data-testid="stColumn"]:nth-child(4) { order: 5; flex: 1 1 calc(50% - 4px) !important; }
+    [class*="st-key-row_"] [data-testid="stColumn"]:nth-child(5) { order: 6; flex: 1 1 calc(50% - 4px) !important; }
+    [class*="st-key-row_"] [data-testid="stColumn"]:nth-child(6) { order: 7; flex: 1 1 100% !important; }
+    [class*="st-key-row_"] [data-testid="stWidgetLabel"] p { font-size: 12px; color: #6b7280; }
+  }
 
   /* ----- comparison ----- */
   .cmp { display: grid; gap: 14px; }
@@ -239,15 +266,31 @@ def truck(steps, capacity, capacity_text):
 # ---------------------------------------------------------------------------
 # Loading sequence (timeline) and comparison
 # ---------------------------------------------------------------------------
-def timeline(rows, loaded_count, total_count):
-    """rows: dicts with item, name, partial, detail, gain (all text prepared by app.py)."""
-    items = "".join(
-        f'<li><span class="node" style="background:{color_of(r["item"])}">{r["item"] + 1}</span>'
-        f'<div class="t-main"><b>{escape(r["name"])}{"<span class=tag>Partial</span>" if r["partial"] else ""}</b>'
-        f'<span>{escape(r["detail"])}</span></div><span class="t-gain">+{escape(r["gain"])}</span></li>'
-        for r in rows)
-    return (f'<div class="sub-head"><h3>Loading sequence</h3><span>{loaded_count} of {total_count} packages</span></div>'
-            f'<ol class="timeline">{items}</ol>')
+def sequence_head(loaded_count, total_count):
+    return (f'<div class="sub-head"><h3>Loading sequence</h3>'
+            f'<span>{loaded_count} of {total_count} packages loaded</span></div>')
+
+
+def header_cell(text):
+    return f'<div class="seq-h">{escape(text)}</div>'
+
+
+def node(index):
+    """Coloured package number (same colour as in the truck)."""
+    return f'<span class="node" style="background:{color_of(index)}">{index + 1}</span>'
+
+
+def step_result(step_number, fraction, detail, gain):
+    """What happened to this package in the selected plan (text prepared by app.py)."""
+    pct = round(fraction * 100)
+    label = "Full" if fraction >= FULL else f"{pct}%<span class=tag>Partial</span>"
+    return (f'<div class="res"><b>Step {step_number}</b> &middot; {label}<span class="g">+{escape(gain)}</span>'
+            f'<div style="font-size:12px;color:#6b7280">{escape(detail)}</div>'
+            f'<div class="mini"><i style="width:{pct}%"></i></div></div>')
+
+
+def not_loaded(text="Not loaded"):
+    return f'<div class="res off">{escape(text)}</div>'
 
 
 def comparison(rows):

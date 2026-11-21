@@ -3,8 +3,11 @@ app.py - CargoOpt page (Streamlit, Python).
 
 IMPORTANT: this file does NO Knapsack calculation.
   knapsack.py -> all the Knapsack logic (Greedy strategies, your own load)
-  ui.py       -> our design (cards, truck drawing, timeline, comparison)
+  ui.py       -> our design (cards, truck drawing, rows, comparison)
   app.py      -> puts the page together: reads input, calls knapsack.py, shows the result with ui.py
+
+The "Loading sequence" is also the package list: every row has a checkbox (load it yourself),
+editable name / weight / profit, the result of the selected strategy and a delete button.
 
 Run:  python -m streamlit run app.py
 """
@@ -47,65 +50,132 @@ PLANS = {
     "max_profit": ("Max profit", "Maximum profit", "Biggest profit first"),
     "min_weight": ("Min weight", "Minimum weight", "Lightest package first"),
     "max_ratio": ("Profit / wt", "Maximum profit / weight", "Best profit per unit of weight first"),
-    "manual": ("Your load", "Your load", "The packages you ticked in the Load column"),
+    "manual": ("Your load", "Your load", "The packages you ticked in the loading sequence"),
 }
+MAX_PACKAGES = 60
 
 
-def sample_table(name):
+# ---------------------------------------------------------------------------
+# State: the packages are a list of dicts; each row's widgets are keyed by the package id
+# ---------------------------------------------------------------------------
+def new_id():
+    st.session_state.next_id += 1
+    return st.session_state.next_id
+
+
+def make_items(name):
     s = SAMPLES[name]
-    # fixed column types, so even an empty table has a checkbox column and number columns
-    return pd.DataFrame({
-        "Load": pd.Series([False] * len(s["names"]), dtype="bool"),
-        "Name": pd.Series(s["names"], dtype="object"),
-        "Weight": pd.Series(s["weights"], dtype="float64"),
-        "Profit": pd.Series(s["profits"], dtype="float64"),
-    })
+    return [{"id": new_id(), "name": n, "weight": float(w), "profit": float(p), "load": False}
+            for n, w, p in zip(s["names"], s["weights"], s["profits"])]
 
 
-# ---------------------------------------------------------------------------
-# Session state (kept while the browser tab is open)
-# ---------------------------------------------------------------------------
-if "packages" not in st.session_state:
+if "pkgs" not in st.session_state:
     first = "Lecture Example 2 (n=7, W=15)"
-    st.session_state.packages = sample_table(first)
+    st.session_state.next_id = 0
+    st.session_state.pkgs = make_items(first)
     st.session_state.capacity = SAMPLES[first]["capacity"]
     st.session_state.dataset = first
-    st.session_state.editor_version = 0
     st.session_state.strategy = "max_ratio"
-
-if st.session_state.pop("clear_form", False):           # empty the add form after a successful add
-    for field in ("f_name", "f_weight", "f_profit"):
-        st.session_state.pop(field, None)
-
-if "flash" in st.session_state:
-    st.toast(st.session_state.pop("flash"), icon="✅")
 
 if st.session_state.get("strategy") is None:            # clicking the selected strategy again un-selects it
     st.session_state.strategy = st.session_state.get("last_strategy", "max_ratio")
 st.session_state.last_strategy = st.session_state.strategy
 
+for text, icon in st.session_state.pop("messages", []):
+    st.toast(text, icon=icon)
 
-def load_dataset():
-    """Called when the user picks another dataset."""
-    name = st.session_state.dataset
-    st.session_state.packages = sample_table(name)
-    st.session_state.capacity = SAMPLES[name]["capacity"]
-    st.session_state.editor_version += 1          # start a fresh table editor
+
+def say(text, icon="⚠️"):
+    st.session_state.setdefault("messages", []).append((text, icon))
+
+
+def find(item_id):
+    return next(it for it in st.session_state.pkgs if it["id"] == item_id)
+
+
+def ticked_weight():
+    return sum(it["weight"] for it in st.session_state.pkgs if it["load"])
+
+
+# ----- callbacks (run before the page is drawn again) -----
+def on_dataset():
+    st.session_state.pkgs = make_items(st.session_state.dataset)
+    st.session_state.capacity = SAMPLES[st.session_state.dataset]["capacity"]
+
+
+def on_capacity():
+    if ticked_weight() > st.session_state.capacity + 1e-9:
+        for it in st.session_state.pkgs:
+            it["load"] = False
+            st.session_state[f"ld_{it['id']}"] = False
+        say("Capacity reduced, your load was cleared")
+
+
+def on_tick(item_id):
+    it = find(item_id)
+    ticked = st.session_state[f"ld_{item_id}"]
+    if ticked and ticked_weight() + it["weight"] > st.session_state.capacity + 1e-9:
+        st.session_state[f"ld_{item_id}"] = False
+        free = max(0.0, st.session_state.capacity - ticked_weight())
+        say(f'"{it["name"]}" doesn\'t fit: only {free:g} {st.session_state.get("unit", "kg")} free')
+        return
+    it["load"] = ticked
+
+
+def on_edit(item_id, field):
+    it = find(item_id)
+    key = {"name": "nm", "weight": "wt", "profit": "pf"}[field] + f"_{item_id}"
+    value = st.session_state[key]
+    if field == "name":
+        value = (value or "").strip()
+        if not value:
+            st.session_state[key] = it["name"]
+            return say("Name cannot be empty")
+    elif value is None or (field == "weight" and value <= 0) or value < 0:
+        st.session_state[key] = it[field]
+        return say("Weight must be greater than 0" if field == "weight" else "Profit must be 0 or more")
+    it[field] = value
+    if field == "weight" and it["load"] and ticked_weight() > st.session_state.capacity + 1e-9:
+        it["load"] = False
+        st.session_state[f"ld_{item_id}"] = False
+        say(f'"{it["name"]}" no longer fits, removed from your load')
+
+
+def on_delete(item_id):
+    st.session_state.pkgs = [it for it in st.session_state.pkgs if it["id"] != item_id]
+    for prefix in ("ld", "nm", "wt", "pf"):
+        st.session_state.pop(f"{prefix}_{item_id}", None)
+
+
+def on_add():
+    name = (st.session_state.f_name or "").strip()
+    weight, profit = st.session_state.f_weight, st.session_state.f_profit
+    error = ("Enter a package name." if not name
+             else "Weight must be greater than 0." if weight is None or weight <= 0
+             else "Profit must be 0 or more." if profit is None or profit < 0
+             else f"Limit of {MAX_PACKAGES} packages reached." if len(st.session_state.pkgs) >= MAX_PACKAGES
+             else "")
+    st.session_state.form_error = error
+    if error:
+        return
+    st.session_state.pkgs.append({"id": new_id(), "name": name, "weight": float(weight), "profit": float(profit), "load": False})
+    st.session_state.f_name, st.session_state.f_weight, st.session_state.f_profit = "", None, None
+    say(f'Added "{name}"', "✅")
 
 
 # ---------------------------------------------------------------------------
-# Layout: left = setup + add form, right = results (cards are filled further down)
+# Layout: left = setup + add form, right = results
 # ---------------------------------------------------------------------------
 left, right = st.columns([1, 1.9], gap="medium")
 
 with left:
     with st.container(key="card_setup"):
         st.html(ui.card_head("Shipment", "Pick a dataset or build your own."))
-        st.selectbox("Dataset", list(SAMPLES), key="dataset", on_change=load_dataset)
+        st.selectbox("Dataset", list(SAMPLES), key="dataset", on_change=on_dataset)
         note_slot = st.empty()
         c_cap, c_unit, c_cur = st.columns([1.3, 1, 1])
-        c_cap.number_input("Capacity", min_value=0.0, step=1.0, key="capacity")
-        unit = c_unit.selectbox("Unit", ["kg", "lb", "ton"])
+        c_cap.number_input("Capacity", min_value=0.0, step=1.0, key="capacity", on_change=on_capacity)
+        unit = c_unit.selectbox("Unit", ["kg", "lb", "ton"], key="unit")
         currency = c_cur.selectbox("Currency", ["$", "Rs", "€", "£"])
 
     with st.container(key="card_add"):
@@ -115,16 +185,12 @@ with left:
             c_w, c_p = st.columns(2)
             c_w.number_input(f"Weight ({unit})", min_value=0.0, step=1.0, value=None, key="f_weight", placeholder="0")
             c_p.number_input(f"Profit ({currency})", min_value=0.0, step=1.0, value=None, key="f_profit", placeholder="0")
-            add_clicked = st.form_submit_button("＋ Add package", type="primary", width="stretch")
-        form_message = st.empty()
-
-with right:
-    plan_card = st.container(key="card_plan")
-    packages_card = st.container(key="card_packages")
-    compare_card = st.container(key="card_compare")
-    about_card = st.container(key="card_about")
+            st.form_submit_button("＋ Add package", type="primary", width="stretch", on_click=on_add)
+        if st.session_state.get("form_error"):
+            st.error(st.session_state.form_error)
 
 capacity = float(st.session_state.capacity)
+items = st.session_state.pkgs
 
 
 def num(value):
@@ -140,121 +206,39 @@ def wt(value):
     return f"{num(value)} {unit}"
 
 
-# ---------------------------------------------------------------------------
-# Packages card: tick "Load" to load a package yourself, click a cell to edit
-# ---------------------------------------------------------------------------
-with packages_card:
-    head_slot = st.empty()
-    edited = st.data_editor(
-        st.session_state.packages,
-        key=f"editor_{st.session_state.editor_version}",
-        num_rows="dynamic",
-        hide_index=True,
-        width="stretch",
-        column_config={
-            "Load": st.column_config.CheckboxColumn("Load", help="Load this package yourself", default=False, width="small"),
-            "Name": st.column_config.TextColumn("Package", required=True, max_chars=40, width="medium"),
-            "Weight": st.column_config.NumberColumn(f"Weight ({unit})", min_value=0.0, required=True, width="small"),
-            "Profit": st.column_config.NumberColumn(f"Profit ({currency})", min_value=0.0, required=True, width="small"),
-        },
-    )
-    footer_slot = st.empty()
-
-# Add form: handled after the table so the new package keeps the edits made in the table
-if add_clicked:
-    name = (st.session_state.f_name or "").strip()
-    w_in, p_in = st.session_state.f_weight, st.session_state.f_profit
-    if not name:
-        form_message.error("Enter a package name.")
-    elif w_in is None or w_in <= 0:
-        form_message.error("Weight must be greater than 0.")
-    elif p_in is None or p_in < 0:
-        form_message.error("Profit must be 0 or more.")
-    else:
-        new_row = pd.DataFrame([{"Load": False, "Name": name, "Weight": float(w_in), "Profit": float(p_in)}])
-        st.session_state.packages = pd.concat([edited, new_row], ignore_index=True)
-        st.session_state.editor_version += 1
-        st.session_state.clear_form = True
-        st.session_state.flash = f'Added "{name}"'
-        st.rerun()
-
-# Keep only complete rows (a new empty row is ignored until it is filled in)
-valid = (
-    edited["Name"].notna() & edited["Name"].astype(str).str.strip().ne("")
-    & edited["Weight"].notna() & (edited["Weight"] > 0)
-    & edited["Profit"].notna() & (edited["Profit"] >= 0)
-)
-packages = edited[valid].reset_index(drop=True)
-packages["Load"] = packages["Load"].fillna(False).astype(bool)
-ignored = int((~valid).sum())
-
-head_slot.html(ui.card_head(
-    "Packages",
-    "Tick Load to load a package yourself. Click a cell to edit; add a row at the bottom; select rows and press Delete to remove.",
-    count=len(packages)))
-
 sample = SAMPLES.get(st.session_state.dataset, {})
-untouched = (packages[["Name", "Weight", "Profit"]].values.tolist()
-             == sample_table(st.session_state.dataset)[["Name", "Weight", "Profit"]].values.tolist())
+untouched = ([(it["name"], it["weight"], it["profit"]) for it in items]
+             == [(n, float(w), float(p)) for n, w, p in zip(sample.get("names", []), sample.get("weights", []), sample.get("profits", []))])
 if sample.get("note") and untouched and capacity == sample["capacity"]:
     note_slot.html(ui.callout(sample["note"]))
 
 # ---------------------------------------------------------------------------
-# Nothing to calculate yet?
-# ---------------------------------------------------------------------------
-problem = None
-if packages.empty:
-    problem = ("No packages yet", "Add one with the form or the empty row in the table.")
-elif capacity <= 0:
-    problem = ("Truck capacity is 0", "Set a capacity greater than 0 in Shipment.")
-if problem:
-    with plan_card:
-        st.html(ui.card_head("Load plan", "Step-by-step Greedy loading"))
-        st.html(ui.empty(*problem))
-    with compare_card:
-        st.html(ui.card_head("Strategy comparison", "Total profit of each rule on the same shipment."))
-        st.html('<p class="rule">The comparison appears once there are packages to load.</p>')
-    st.html(ui.footer())
-    st.stop()
-
-# ---------------------------------------------------------------------------
 # Ask knapsack.py for the answers
 # ---------------------------------------------------------------------------
-names = packages["Name"].astype(str).tolist()
-weights = packages["Weight"].astype(float).tolist()
-profits = packages["Profit"].astype(float).tolist()
-chosen = [i for i, ticked in enumerate(packages["Load"]) if ticked]
+names = [it["name"] for it in items]
+weights = [it["weight"] for it in items]
+profits = [it["profit"] for it in items]
+chosen = [i for i, it in enumerate(items) if it["load"]]
 
-answer = compare_all(profits, weights, capacity)              # the three Greedy strategies
-manual_error = None
-try:
-    manual = manual_load(profits, weights, capacity, chosen)   # "Your load"
-except ValueError as error:
-    manual, manual_error = None, str(error)
+answer, manual, manual_error = None, None, None
+if items and capacity > 0:
+    answer = compare_all(profits, weights, capacity)              # the three Greedy strategies
+    try:
+        manual = manual_load(profits, weights, capacity, chosen)   # "Your load"
+    except ValueError as error:
+        manual_error = str(error)
 
-results = dict(answer["strategies"])
+results = dict(answer["strategies"]) if answer else {}
 if manual and manual["steps"]:
     results["manual"] = manual
-best_profit = max(answer["strategies"][k]["total_profit"] for k in STRATEGIES)
+best_profit = max((answer["strategies"][k]["total_profit"] for k in STRATEGIES), default=0.0) if answer else 0.0
 
-# footer under the table: your own load
-ticked_weight = sum(weights[i] for i in chosen)
-footer_slot.html(ui.load_footer(
-    len(chosen), wt(ticked_weight), wt(capacity),
-    money(manual["total_profit"]) if manual else "-", wt(max(0.0, capacity - ticked_weight)),
-    over=manual_error is not None))
-if ignored:
-    with packages_card:
-        st.caption(f"{ignored} row(s) ignored until name, weight (> 0) and profit (≥ 0) are filled in.")
 
-# ---------------------------------------------------------------------------
-# Load plan card
-# ---------------------------------------------------------------------------
 def option_label(key):
     short = PLANS[key][0]                       # two lines: name, then profit in bold
     if key not in results:
         return f"{short}  \n**–**"
-    star = " ★" if key in answer["best"] else ""
+    star = " ★" if answer and key in answer["best"] else ""
     return f"{short}{star}  \n**{money(results[key]['total_profit'])}**"
 
 
@@ -268,82 +252,127 @@ def sort_text(key, step):
     return "your pick"
 
 
-with plan_card:
-    head_col, export_col = st.columns([3, 1], vertical_alignment="center")
-    head_col.html(ui.card_head("Load plan", "Step-by-step Greedy loading"))
-    st.segmented_control("Strategy", list(PLANS), key="strategy", format_func=option_label,
-                         label_visibility="collapsed", width="stretch")
-    key = st.session_state.strategy or "max_ratio"
-    short, full_name, rule = PLANS[key]
-    st.html(f'<p class="rule">{full_name}: {rule.lower()}.</p>')
-
-    if key == "manual" and manual_error:
-        st.html(ui.callout(manual_error, bad=True))
-    elif key == "manual" and not chosen:
-        st.html(ui.empty("Nothing ticked yet",
-                         "Tick packages in the Load column of the table, then compare your load with Greedy."))
-    else:
-        plan = results[key]
-        gap = best_profit - plan["total_profit"]
-        st.html(ui.stats(
-            money(plan["total_profit"]),
-            "Best" if gap < 1e-9 else f"−{money(gap)} vs best", gap < 1e-9,
-            num(plan["total_weight"]), wt(capacity),
-            f"{round(plan['total_weight'] / capacity * 100)}%"))
-        st.html(ui.truck(plan["steps"], capacity, wt(capacity)))
-
-        rows = []
-        for s in plan["steps"]:
-            i = s["item"]
-            partial = s["fraction"] < ui.FULL
-            took = (f"took {round(s['fraction'] * 100)}% ({wt(s['weight_taken'])} of {wt(weights[i])})" if partial
-                    else f"took all {wt(s['weight_taken'])}")
-            rows.append({"item": i, "name": names[i], "partial": partial,
-                         "detail": f"{sort_text(key, s)} · {took} · {wt(s['remaining'])} left",
-                         "gain": money(s["profit_gained"])})
-        st.html(ui.timeline(rows, len(plan["steps"]), len(names)))
-
-        csv = pd.DataFrame([{
-            "Step": n, "Package": names[s["item"]], "Percent loaded": round(s["fraction"] * 100, 1),
-            f"Weight loaded ({unit})": s["weight_taken"], f"Profit added ({currency})": s["profit_gained"],
-            f"Space left ({unit})": s["remaining"],
-        } for n, s in enumerate(plan["steps"], start=1)]).to_csv(index=False).encode("utf-8")
-        export_col.download_button("⬇ Export", csv, file_name=f"cargo-plan-{key}.csv", mime="text/csv", width="stretch")
-
 # ---------------------------------------------------------------------------
-# Strategy comparison card
+# Load plan card (with the editable loading sequence)
 # ---------------------------------------------------------------------------
-with compare_card:
-    st.html(ui.card_head("Strategy comparison", "Total profit of each Greedy rule on the same shipment."))
-    rows = []
-    for k, (short, full_name, rule) in PLANS.items():
-        if k not in results:
-            continue
-        profit = results[k]["total_profit"]
-        gap = best_profit - profit
-        rows.append({"name": full_name, "desc": rule, "value": money(profit),
-                     "pct": min(100.0, profit / best_profit * 100) if best_profit > 0 else 0.0,
-                     "best": k in answer["best"], "gap": money(gap) if gap > 1e-9 else None})
-    st.html(ui.comparison(rows))
+with right:
+    with st.container(key="card_plan"):
+        head_col, export_col = st.columns([3, 1], vertical_alignment="center")
+        head_col.html(ui.card_head("Load plan", "Tick, edit or remove packages right in the loading sequence."))
+        st.segmented_control("Strategy", list(PLANS), key="strategy", format_func=option_label,
+                             label_visibility="collapsed", width="stretch")
+        key = st.session_state.strategy or "max_ratio"
+        short, full_name, rule = PLANS[key]
+        st.html(f'<p class="rule">{full_name}: {rule.lower()}.</p>')
 
-    if "manual" in results:
-        share = round(results["manual"]["total_profit"] / best_profit * 100) if best_profit else 0
-        note = (f"Your load earns <b>{share}%</b> of the best Greedy plan "
-                f"({money(results['manual']['total_profit'])} of {money(best_profit)}).")
-    elif len(answer["best"]) == len(STRATEGIES):
-        note = "All three Greedy strategies earn the same on this shipment."
-    else:
-        note = ("<b>Maximum profit / weight</b> earns the most. For Fractional Knapsack, choosing by profit / weight "
-                "is always optimal. Tick packages in the table to try to beat it yourself.")
-    st.html(ui.callout(note))
+        plan = results.get(key)
+        if not items:
+            st.html(ui.empty("No packages yet", "Add one with the Add package form."))
+        elif capacity <= 0:
+            st.html(ui.empty("Truck capacity is 0", "Set a capacity greater than 0 in Shipment."))
+        elif key == "manual" and manual_error:
+            st.html(ui.callout(manual_error, bad=True))
+        elif key == "manual" and not chosen:
+            st.html(ui.callout("Tick packages in the loading sequence below to build your own load, "
+                               "then compare it with the Greedy strategies."))
+        if plan:
+            gap = best_profit - plan["total_profit"]
+            st.html(ui.stats(
+                money(plan["total_profit"]),
+                "Best" if gap < 1e-9 else f"−{money(gap)} vs best", gap < 1e-9,
+                num(plan["total_weight"]), wt(capacity),
+                f"{round(plan['total_weight'] / capacity * 100)}%"))
+            st.html(ui.truck(plan["steps"], capacity, wt(capacity)))
+            csv = pd.DataFrame([{
+                "Step": n, "Package": names[s["item"]], "Percent loaded": round(s["fraction"] * 100, 1),
+                f"Weight loaded ({unit})": s["weight_taken"], f"Profit added ({currency})": s["profit_gained"],
+                f"Space left ({unit})": s["remaining"],
+            } for n, s in enumerate(plan["steps"], start=1)]).to_csv(index=False).encode("utf-8")
+            export_col.download_button("⬇ Export", csv, file_name=f"cargo-plan-{key}.csv", mime="text/csv", width="stretch")
 
-# ---------------------------------------------------------------------------
-# How it works
-# ---------------------------------------------------------------------------
-with about_card:
-    with st.expander("How it works"):
-        st.markdown(
-            """
+        # ----- the loading sequence = the package list -----
+        if items:
+            steps = {s["item"]: (n, s) for n, s in enumerate(plan["steps"], start=1)} if plan else {}
+            order = [s["item"] for s in plan["steps"]] if plan else []
+            order += [i for i in range(len(items)) if i not in steps]      # not loaded: at the end
+
+            st.html(ui.sequence_head(len(steps), len(items)))
+            widths = [0.35, 0.45, 2.2, 1.05, 1.05, 2.3, 0.4]
+            with st.container(key="seq"):
+                with st.container(key="seqhead"):
+                    head = st.columns(widths, vertical_alignment="bottom", gap="small")
+                    for col, text in zip(head, ["", "#", "Package", f"Weight ({unit})", f"Profit ({currency})",
+                                                "Your load" if key == "manual" else "Greedy load", ""]):
+                        col.html(ui.header_cell(text))
+                for i in order:
+                    it = items[i]
+                    pid = it["id"]
+                    # first time a row is drawn: put the package values into its widgets
+                    for prefix, value in (("ld", it["load"]), ("nm", it["name"]), ("wt", it["weight"]), ("pf", it["profit"])):
+                        st.session_state.setdefault(f"{prefix}_{pid}", value)
+                    with st.container(key=f"row_{pid}"):
+                        c = st.columns(widths, vertical_alignment="center", gap="small")
+                        c[0].checkbox("Load", key=f"ld_{pid}", on_change=on_tick, args=(pid,), label_visibility="collapsed",
+                                      help="Load this package yourself (Your load)")
+                        c[1].html(ui.node(i))
+                        c[2].text_input("Name", key=f"nm_{pid}", max_chars=40, on_change=on_edit, args=(pid, "name"),
+                                        label_visibility="collapsed")
+                        c[3].number_input(f"Weight ({unit})", key=f"wt_{pid}", min_value=0.0, step=1.0, format="%g",
+                                          on_change=on_edit, args=(pid, "weight"))
+                        c[4].number_input(f"Profit ({currency})", key=f"pf_{pid}", min_value=0.0, step=1.0, format="%g",
+                                          on_change=on_edit, args=(pid, "profit"))
+                        if i in steps:
+                            n, s = steps[i]
+                            c[5].html(ui.step_result(n, s["fraction"], f"{sort_text(key, s)} · {wt(s['remaining'])} left",
+                                                     money(s["profit_gained"])))
+                        else:
+                            c[5].html(ui.not_loaded("Not ticked" if key == "manual" else "Not loaded"))
+                        c[6].button(":material/delete:", key=f"del_{pid}", on_click=on_delete, args=(pid,),
+                                    help=f"Remove {it['name']}")
+
+            st.html(ui.load_footer(
+                len(chosen), wt(sum(weights[i] for i in chosen)), wt(capacity),
+                money(manual["total_profit"]) if manual else "-",
+                wt(max(0.0, capacity - sum(weights[i] for i in chosen))),
+                over=manual_error is not None))
+
+    # -----------------------------------------------------------------------
+    # Strategy comparison card
+    # -----------------------------------------------------------------------
+    with st.container(key="card_compare"):
+        st.html(ui.card_head("Strategy comparison", "Total profit of each Greedy rule on the same shipment."))
+        if not answer:
+            st.html('<p class="rule">The comparison appears once there are packages to load.</p>')
+        else:
+            rows = []
+            for k, (short, full_name, rule) in PLANS.items():
+                if k not in results:
+                    continue
+                profit = results[k]["total_profit"]
+                gap = best_profit - profit
+                rows.append({"name": full_name, "desc": rule, "value": money(profit),
+                             "pct": min(100.0, profit / best_profit * 100) if best_profit > 0 else 0.0,
+                             "best": k in answer["best"], "gap": money(gap) if gap > 1e-9 else None})
+            st.html(ui.comparison(rows))
+
+            if "manual" in results:
+                share = round(results["manual"]["total_profit"] / best_profit * 100) if best_profit else 0
+                note = (f"Your load earns <b>{share}%</b> of the best Greedy plan "
+                        f"({money(results['manual']['total_profit'])} of {money(best_profit)}).")
+            elif len(answer["best"]) == len(STRATEGIES):
+                note = "All three Greedy strategies earn the same on this shipment."
+            else:
+                note = ("<b>Maximum profit / weight</b> earns the most. For Fractional Knapsack, choosing by profit / weight "
+                        "is always optimal. Tick packages in the loading sequence to try to beat it yourself.")
+            st.html(ui.callout(note))
+
+    # -----------------------------------------------------------------------
+    # How it works
+    # -----------------------------------------------------------------------
+    with st.container(key="card_about"):
+        with st.expander("How it works"):
+            st.markdown(
+                """
 **Fractional Knapsack:** the truck holds a limited weight, and part of a package may be loaded.
 Greedy picks the package that looks best at each step and never goes back.
 
@@ -357,6 +386,6 @@ Greedy picks the package that looks best at each step and never goes back.
 `fractional_knapsack()` fills the truck, `compare_all()` runs the three strategies and `manual_load()`
 totals your ticked packages. `ui.py` is only the design and `app.py` puts the page together.
 """
-        )
+            )
 
 st.html(ui.footer())
