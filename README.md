@@ -18,22 +18,11 @@ The loading sequence is also the package list: tick a package to load it yoursel
 | `knapsack.py` | **All the Knapsack logic.** `choose_order()` sorts the packages, `fractional_knapsack()` fills the truck, `compare_all()` runs the three strategies, `manual_load()` totals the ticked packages. Also a command-line program. |
 | `app.py` | Puts the page together: reads input, calls `knapsack.py`, shows the results with `ui.py`. No Knapsack calculation here. |
 | `ui.py` | Our design in Python: page styles, cards, truck drawing, loading timeline, comparison bars. No calculation. |
-| `run.bat` / `run.sh` | One-click start: installs everything the first time, then opens the app. |
 | `requirements.txt` | Python packages needed. |
 | `.streamlit/config.toml` | Colours of the interface. |
+| `docs/` | Explanation of every file, and `knapsack.py` line by line. |
 
-## Run on any computer (easiest)
-
-1. Download the project (GitHub: **Code > Download ZIP**) and unzip it.
-2. **Windows:** double-click `run.bat`.
-   **macOS / Linux:** open a terminal in the folder and run `bash run.sh`.
-3. The browser opens http://localhost:8501 by itself. Keep the black window open while using the app.
-
-The first start needs internet and takes a few minutes: the script finds Python (on Windows it offers
-to install it with winget if it is missing), creates a private environment in `.venv` and installs
-the packages. Later starts take a few seconds.
-
-## Run by hand
+## Run
 
 ```
 pip install -r requirements.txt
