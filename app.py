@@ -50,7 +50,7 @@ PLANS = {
     "max_profit": ("Max profit", "Maximum profit", "Biggest profit first"),
     "min_weight": ("Min weight", "Minimum weight", "Lightest package first"),
     "max_ratio": ("Profit / wt", "Maximum profit / weight", "Best profit per unit of weight first"),
-    "manual": ("Your load", "Your load", "The packages you ticked in the loading sequence"),
+    "manual": ("Your load", "Your load", "The packages you ticked, in that order (the last one can be loaded partly)"),
 }
 MAX_PACKAGES = 60
 
@@ -65,7 +65,7 @@ def new_id():
 
 def make_items(name):
     s = SAMPLES[name]
-    return [{"id": new_id(), "name": n, "weight": float(w), "profit": float(p), "load": False}
+    return [{"id": new_id(), "name": n, "weight": float(w), "profit": float(p), "load": False, "seq": 0}
             for n, w, p in zip(s["names"], s["weights"], s["profits"])]
 
 
@@ -103,22 +103,20 @@ def on_dataset():
     st.session_state.capacity = SAMPLES[st.session_state.dataset]["capacity"]
 
 
-def on_capacity():
-    if ticked_weight() > st.session_state.capacity + 1e-9:
-        for it in st.session_state.pkgs:
-            it["load"] = False
-            st.session_state[f"ld_{it['id']}"] = False
-        say("Capacity reduced, your load was cleared")
-
-
 def on_tick(item_id):
+    """Your load works like Fractional Knapsack: a package that doesn't fully fit is loaded partly."""
     it = find(item_id)
     ticked = st.session_state[f"ld_{item_id}"]
-    if ticked and ticked_weight() + it["weight"] > st.session_state.capacity + 1e-9:
-        st.session_state[f"ld_{item_id}"] = False
-        free = max(0.0, st.session_state.capacity - ticked_weight())
-        say(f'"{it["name"]}" doesn\'t fit: only {free:g} {st.session_state.get("unit", "kg")} free')
-        return
+    if ticked:
+        free = st.session_state.capacity - ticked_weight()
+        if free <= 1e-9:
+            st.session_state[f"ld_{item_id}"] = False
+            say("The truck is full: untick a package first")
+            return
+        it["seq"] = new_id()                      # remembers the order you ticked in
+        if it["weight"] > free + 1e-9:
+            part = round(free / it["weight"] * 100)
+            say(f'Only {free:g} {st.session_state.get("unit", "kg")} free: {part}% of "{it["name"]}" is loaded', "✂️")
     it["load"] = ticked
 
 
@@ -135,10 +133,6 @@ def on_edit(item_id, field):
         st.session_state[key] = it[field]
         return say("Weight must be greater than 0" if field == "weight" else "Profit must be 0 or more")
     it[field] = value
-    if field == "weight" and it["load"] and ticked_weight() > st.session_state.capacity + 1e-9:
-        it["load"] = False
-        st.session_state[f"ld_{item_id}"] = False
-        say(f'"{it["name"]}" no longer fits, removed from your load')
 
 
 def on_delete(item_id):
@@ -158,7 +152,7 @@ def on_add():
     st.session_state.form_error = error
     if error:
         return
-    st.session_state.pkgs.append({"id": new_id(), "name": name, "weight": float(weight), "profit": float(profit), "load": False})
+    st.session_state.pkgs.append({"id": new_id(), "name": name, "weight": float(weight), "profit": float(profit), "load": False, "seq": 0})
     st.session_state.f_name, st.session_state.f_weight, st.session_state.f_profit = "", None, None
     say(f'Added "{name}"', "✅")
 
@@ -174,7 +168,7 @@ with left:
         st.selectbox("Dataset", list(SAMPLES), key="dataset", on_change=on_dataset)
         note_slot = st.empty()
         c_cap, c_unit, c_cur = st.columns([1.3, 1, 1])
-        c_cap.number_input("Capacity", min_value=0.0, step=1.0, key="capacity", on_change=on_capacity)
+        c_cap.number_input("Capacity", min_value=0.0, step=1.0, key="capacity")
         unit = c_unit.selectbox("Unit", ["kg", "lb", "ton"], key="unit")
         currency = c_cur.selectbox("Currency", ["$", "Rs", "€", "£"])
 
@@ -218,15 +212,14 @@ if sample.get("note") and untouched and capacity == sample["capacity"]:
 names = [it["name"] for it in items]
 weights = [it["weight"] for it in items]
 profits = [it["profit"] for it in items]
-chosen = [i for i, it in enumerate(items) if it["load"]]
+picked = [(it.get("seq", 0), i) for i, it in enumerate(items) if it["load"]]
+picked.sort()                                    # in the order the user ticked them
+chosen = [i for seq, i in picked]
 
-answer, manual, manual_error = None, None, None
+answer, manual = None, None
 if items and capacity > 0:
     answer = compare_all(profits, weights, capacity)              # the three Greedy strategies
-    try:
-        manual = manual_load(profits, weights, capacity, chosen)   # "Your load"
-    except ValueError as error:
-        manual_error = str(error)
+    manual = manual_load(profits, weights, capacity, chosen)       # "Your load"
 
 results = dict(answer["strategies"]) if answer else {}
 if manual and manual["steps"]:
@@ -270,11 +263,10 @@ with right:
             st.html(ui.empty("No packages yet", "Add one with the Add package form."))
         elif capacity <= 0:
             st.html(ui.empty("Truck capacity is 0", "Set a capacity greater than 0 in Shipment."))
-        elif key == "manual" and manual_error:
-            st.html(ui.callout(manual_error, bad=True))
         elif key == "manual" and not chosen:
             st.html(ui.callout("Tick packages in the loading sequence below to build your own load, "
-                               "then compare it with the Greedy strategies."))
+                               "then compare it with the Greedy strategies. If a package doesn't fully fit, "
+                               "only the part that fits is loaded, with profit for that part."))
         if plan:
             gap = best_profit - plan["total_profit"]
             st.html(ui.stats(
@@ -326,15 +318,17 @@ with right:
                             c[5].html(ui.step_result(n, s["fraction"], f"{sort_text(key, s)} · {wt(s['remaining'])} left",
                                                      money(s["profit_gained"])))
                         else:
-                            c[5].html(ui.not_loaded("Not ticked" if key == "manual" else "Not loaded"))
+                            if key != "manual":
+                                c[5].html(ui.not_loaded("Not loaded"))
+                            else:
+                                c[5].html(ui.not_loaded("Ticked · no space left" if it["load"] else "Not ticked"))
                         c[6].button(":material/delete:", key=f"del_{pid}", on_click=on_delete, args=(pid,),
                                     help=f"Remove {it['name']}")
 
             st.html(ui.load_footer(
-                len(chosen), wt(sum(weights[i] for i in chosen)), wt(capacity),
+                len(chosen), wt(manual["total_weight"] if manual else 0), wt(capacity),
                 money(manual["total_profit"]) if manual else "-",
-                wt(max(0.0, capacity - sum(weights[i] for i in chosen))),
-                over=manual_error is not None))
+                wt(max(0.0, capacity - (manual["total_weight"] if manual else 0)))))
 
     # -----------------------------------------------------------------------
     # Strategy comparison card

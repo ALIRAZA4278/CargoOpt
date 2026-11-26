@@ -44,7 +44,7 @@ Truck ki ek limit (capacity) hoti hai. Fractional Knapsack mein package ka **his
 | `choose_order()` | Greedy step 1: packages ko best-first order mein lagata hai |
 | `fractional_knapsack()` | Greedy step 2: truck ko us order mein bharta hai, aakhri package partly |
 | `compare_all()` | teeno strategies chalata hai aur batata hai kaun si best hai |
-| `manual_load()` | user ke tick kiye hue packages ka total nikalta hai ("Your load") |
+| `manual_load()` | user ke tick kiye hue packages ko tick ke order mein load karta hai ("Your load"); jo poora fit na ho uska hissa |
 | `show()` + `__main__` | command-line version, lecture ke dono examples print karta hai |
 
 **Packages:** koi nahi. Yeh file **sirf plain Python** hai, koi `import` nahi. Is liye bina kuch install kiye chal jaati hai, aur teacher ko algorithm samjhana easy hai.
@@ -66,8 +66,8 @@ Poori line-by-line detail doosre document mein hai: `docs/2-knapsack-line-by-lin
 **knapsack.py se connection:**
 
 - `from knapsack import STRATEGIES, compare_all, manual_load` (line 19)
-- `compare_all(profits, weights, capacity)` se teeno strategies ka answer (line 225)
-- `manual_load(profits, weights, capacity, chosen)` se user ka apna load (line 227)
+- `compare_all(profits, weights, capacity)` se teeno strategies ka answer (line 221)
+- `manual_load(profits, weights, capacity, chosen)` se user ka apna load (line 222)
 
 **ui.py se connection:** `import ui`, phir `st.html(ui.card_head(...))`, `ui.truck(...)`, `ui.comparison(...)` waghera.
 
@@ -76,7 +76,7 @@ Poori line-by-line detail doosre document mein hai: `docs/2-knapsack-line-by-lin
 | Package | Kya kaam karta hai | Hum ne kyun use kiya |
 |---|---|---|
 | **streamlit** (`import streamlit as st`) | Python code se web page banata hai: buttons, inputs, checkboxes, columns, toast messages. `st.session_state` page reload hone par bhi data (packages list) yaad rakhta hai. | Hum HTML/JavaScript ka poora frontend nahi likhna chahte the. Streamlit se **sirf Python** mein interactive web app ban jaati hai, aur free deploy bhi ho jaati hai (share.streamlit.io). |
-| **pandas** (`import pandas as pd`) | Tables (DataFrame) ke saath kaam karta hai. | Sirf **Export** button ke liye: load plan ke steps ko `pd.DataFrame(...)` mein daal kar `.to_csv()` se CSV file banti hai (line 286–290). |
+| **pandas** (`import pandas as pd`) | Tables (DataFrame) ke saath kaam karta hai. | Sirf **Export** button ke liye: load plan ke steps ko `pd.DataFrame(...)` mein daal kar `.to_csv()` se CSV file banti hai (line 278–282). |
 
 ---
 

@@ -7,7 +7,7 @@
 2. strategy_key, add_step, make_result     │  (helpers)
 3. choose_order → fractional_knapsack      │  (Greedy algorithm)
 4. compare_all  ── teeno strategies chalata hai (1 + 3 use karta hai)
-5. manual_load  ── user ka apna load (2 use karta hai)
+5. manual_load  ── user ka apna load, tick ke order mein (2 use karta hai)
 6. show + __main__ ── command line par print (4 use karta hai)
 ```
 
@@ -73,7 +73,7 @@ STRATEGIES = {
 - **Lines 14–16:** baayein taraf **key** hai (code mein use hoti hai, jaise `"max_ratio"`), daayein taraf **readable naam** (user ko dikhta hai).
 - **Connection:**
   - `compare_all()` (line 82) isi par loop chala kar teeno strategies chalata hai.
-  - `show()` (line 108) isi se naam print karta hai.
+  - `show()` (line 109) isi se naam print karta hai.
   - `app.py` bhi isay import karta hai.
   - Nayi strategy add karni ho to yahan ek line aur `strategy_key()` mein ek `if` add karna kaafi hai.
 
@@ -290,42 +290,49 @@ def compare_all(profits, weights, capacity):
  "best": ["max_ratio"]}
 ```
 
-- **Connection:** `app.py` line 225 isay call karta hai. `answer["best"]` se strategy ke saath ★ aur comparison mein "Optimal" badge lagta hai.
+- **Connection:** `app.py` line 221 isay call karta hai. `answer["best"]` se strategy ke saath ★ aur comparison mein "Optimal" badge lagta hai.
 
 ---
 
-## Section 5 – Lines 90–101: `manual_load()` ("Your load")
+## Section 5 – Lines 90–102: `manual_load()` ("Your load")
 
 ```python
 def manual_load(profits, weights, capacity, chosen):
-    """The packages the user ticked by hand (whole packages only)."""
-    used = sum(weights[i] for i in chosen)
-    if used > capacity + 1e-9:
-        raise ValueError(f"Your ticked packages weigh {used:g}, which is {used - capacity:g} more "
-                         f"than the truck capacity of {capacity:g}. Untick some packages.")
+    """The packages the user ticked, in the order ticked; the last one may be loaded partly."""
     remaining, total, steps = capacity, 0.0, []
     for i in chosen:
-        remaining -= weights[i]
-        total += profits[i]
-        add_step(steps, i, profits[i], 1.0, weights[i], profits[i], remaining)
+        if remaining <= 1e-9:           # truck is full
+            break
+        weight = min(weights[i], remaining)
+        fraction = weight / weights[i]
+        profit = profits[i] * fraction
+        remaining -= weight
+        total += profit
+        add_step(steps, i, profits[i], fraction, weight, profit, remaining)
     return make_result(capacity, remaining, total, steps)
 ```
 
-- Yeh Greedy nahi hai. User app mein khud packages **tick** karta hai, aur yeh function un ka total nikalta hai, taake user apna load Greedy se compare kar sake.
-- **Line 90:** `chosen` = tick kiye hue packages ke index, jaise `[0, 2, 5]`.
-- **Line 92:** `sum(weights[i] for i in chosen)`: tick kiye packages ka kul weight.
-- **Lines 93–95:** zyada weight ho to error. Message **f-string** hai (`f"..."`): `{used:g}` ki jagah value aa jaati hai. `:g` ka matlab number ko saaf dikhao, `15.0` ki jagah `15`.
-- **Line 96:** shuruaati values, `fractional_knapsack()` jaisi.
-- **Lines 97–99:** har ticked package **poora** load hota hai (koi hissa nahi), to jagah kam karo aur profit jor do.
-- **Line 100:** step save karo. `fraction` hamesha `1.0` (poora), aur `key` ki jagah profit.
-- **Line 101:** `make_result()` se answer.
-- **Connection:** `app.py` line 227 isay `try/except` ke andar call karta hai. Agar `ValueError` aaye to error ka message "Your load" mein laal box mein dikhta hai.
+- Yeh Greedy nahi hai: **order user khud chunta hai**. User app mein packages **tick** karta hai, aur yeh function unhein **tick kiye hue order** mein truck mein load karta hai, taake user apna load Greedy se compare kar sake.
+- Yeh bhi **Fractional** Knapsack hai: jo package poora fit na ho, uska sirf utna hissa load hota hai jitni jagah bachi hai, aur profit bhi usi hisse ka milta hai. Loop bilkul `fractional_knapsack()` (lines 60–69) jaisa hai; farq sirf order ka hai: wahan `choose_order()` order banata hai, yahan user.
+- **Line 90:** `chosen` = tick kiye hue packages ke index, tick ke order mein, jaise `[5, 3, 2]`.
+- **Line 92:** shuruaati values, `fractional_knapsack()` jaisi.
+- **Lines 93–95:** har ticked package par chalo; jagah khatam ho to `break`.
+- **Line 96:** `min(package ka weight, bachi jagah)`: fit ho to poora, warna sirf bacha hua hissa.
+- **Lines 97–98:** `fraction` (kitna hissa) aur us hisse ka profit.
+- **Lines 99–100:** jagah kam karo, profit jor do.
+- **Line 101:** step save karo. `key` ki jagah package ka profit diya hai (app mein "your pick" dikhta hai).
+- **Line 102:** `make_result()` se answer.
+
+**Example (aap ka case):** Lecture Example 2, capacity 15. User pehle Item 6 (4 kg, profit 18) aur Item 4 (7 kg, profit 7) tick karta hai → 11 kg bhar gaya, **4 kg bachi**. Ab Item 3 (5 kg, profit 15) tick kiya:
+`weight = min(5, 4) = 4`, `fraction = 4/5 = 0.8`, `profit = 15 × 0.8 = 12`. Total = 18 + 7 + 12 = **37**, truck 15/15 kg.
+
+- **Connection:** `app.py` line 222 isay call karta hai. `app.py` mein `on_tick()` tick ka order yaad rakhta hai (`seq`), aur jab package poora fit na ho to message dikhata hai, jaise "Only 4 kg free: 80% of Item 3 is loaded". Truck bilkul full ho to naya tick nahi hota ("The truck is full").
 
 ---
 
-## Section 6 – Lines 105–121: Command-line version
+## Section 6 – Lines 106–122: Command-line version
 
-### Lines 105–114: `show()`
+### Lines 106–115: `show()`
 
 ```python
 def show(profits, weights, capacity):
@@ -340,17 +347,17 @@ def show(profits, weights, capacity):
     print("\nBest:", ", ".join(STRATEGIES[s] for s in answer["best"]))
 ```
 
-- **Line 107:** `compare_all()` se teeno answers lo.
-- **Line 108:** `.items()` se key aur naam dono ek saath milte hain, jaise `("max_ratio", "Maximum profit / weight")`.
-- **Line 109:** strategy ka naam print karo. `\n` = nayi line.
-- **Lines 110–112:** har step print karo:
+- **Line 108:** `compare_all()` se teeno answers lo.
+- **Line 109:** `.items()` se key aur naam dono ek saath milte hain, jaise `("max_ratio", "Maximum profit / weight")`.
+- **Line 110:** strategy ka naam print karo. `\n` = nayi line.
+- **Lines 111–113:** har step print karo:
   - `step['item'] + 1`: index 0 se shuru hota hai, user ke liye 1 se dikhao.
   - `:.0%`: fraction ko percent mein, jaise `0.667` → `67%` aur `1.0` → `100%`.
   - `:.2f`: 2 decimal tak, jaise `3.33`.
-- **Line 113:** total profit print.
-- **Line 114:** `", ".join(...)`: best strategies ke naam comma se jor kar print.
+- **Line 114:** total profit print.
+- **Line 115:** `", ".join(...)`: best strategies ke naam comma se jor kar print.
 
-### Lines 117–121: `if __name__ == "__main__":`
+### Lines 118–122: `if __name__ == "__main__":`
 
 ```python
 if __name__ == "__main__":
@@ -360,8 +367,8 @@ if __name__ == "__main__":
     show([10, 5, 15, 7, 6, 18, 3], [2, 3, 5, 7, 1, 4, 1], 15)
 ```
 
-- **Line 117:** yeh hissa **sirf tab** chalta hai jab file seedha chalayi jaaye (`python knapsack.py`). Jab `app.py` isay `import` karta hai to yeh nahi chalta, is liye website par yeh print nahi hota.
-- **Lines 118–121:** lecture ke dono examples (profits, weights, capacity 15) `show()` ko de kar print karo.
+- **Line 118:** yeh hissa **sirf tab** chalta hai jab file seedha chalayi jaaye (`python knapsack.py`). Jab `app.py` isay `import` karta hai to yeh nahi chalta, is liye website par yeh print nahi hota.
+- **Lines 119–122:** lecture ke dono examples (profits, weights, capacity 15) `show()` ko de kar print karo.
 
 **Output (short):**
 
@@ -378,6 +385,6 @@ Lecture Example 2:  47.00,  54.00,  55.33   → Best: Maximum profit / weight
 2. `choose_order()` packages ko strategy ke number se sort karta hai. Bara pehle chahiye to number ko minus kar dete hain, aur tie mein chhota index pehle.
 3. `fractional_knapsack()` order mein package uthata hai: fit ho to poora, warna sirf bacha hua hissa (`min(weight, remaining)`), aur profit usi fraction se.
 4. `compare_all()` teeno strategies chala kar best batata hai, aur **profit / weight hamesha optimal** hota hai Fractional Knapsack mein.
-5. `manual_load()` user ke tick kiye hue poore packages ka total nikalta hai.
+5. `manual_load()` user ke tick kiye hue packages ko tick ke order mein load karta hai; jo poora fit na ho uska hissa (Fractional), profit bhi usi hisse ka.
 6. **Time complexity:** sorting `O(n log n)` + loading loop `O(n)` = **O(n log n)** har strategy ke liye.
 7. File mein koi `import` nahi aur koi `lambda` nahi. Sirf plain Python hai.

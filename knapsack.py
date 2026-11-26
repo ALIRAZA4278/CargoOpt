@@ -88,16 +88,17 @@ def compare_all(profits, weights, capacity):
 
 # ---------------- 5. The user's own load ("Your load") ----------------
 def manual_load(profits, weights, capacity, chosen):
-    """The packages the user ticked by hand (whole packages only)."""
-    used = sum(weights[i] for i in chosen)
-    if used > capacity + 1e-9:
-        raise ValueError(f"Your ticked packages weigh {used:g}, which is {used - capacity:g} more "
-                         f"than the truck capacity of {capacity:g}. Untick some packages.")
+    """The packages the user ticked, in the order ticked; the last one may be loaded partly."""
     remaining, total, steps = capacity, 0.0, []
     for i in chosen:
-        remaining -= weights[i]
-        total += profits[i]
-        add_step(steps, i, profits[i], 1.0, weights[i], profits[i], remaining)
+        if remaining <= 1e-9:           # truck is full
+            break
+        weight = min(weights[i], remaining)
+        fraction = weight / weights[i]
+        profit = profits[i] * fraction
+        remaining -= weight
+        total += profit
+        add_step(steps, i, profits[i], fraction, weight, profit, remaining)
     return make_result(capacity, remaining, total, steps)
 
 
